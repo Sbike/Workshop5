@@ -18,7 +18,14 @@ export async function node(
 
   // TODO implement this
   // this route allows retrieving the current status of the node
-  // node.get("/status", (req, res) => {});
+
+  node.get("/status", (req, res) => {
+    if (isFaulty) {
+      res.status(500).send("faulty");
+    } else {
+      res.status(200).send("live");
+    }
+  });
 
   // TODO implement this
   // this route allows the node to receive messages from other nodes
