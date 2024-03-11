@@ -104,26 +104,33 @@ export async function node(
         }
       }
     }
-
     res.status(200).send();
   });
 
+
+
   node.get("/start", async (req, res) => {
-    if (!nodesAreReady()) {
-      throw new Error('Not all nodes are ready');
+    if (nodeState.killed) {
+      res.status(500).send("Node is killed");
+      return;
     }
-    nodeState.k = 0;
-    nodeState.x = initialValue;
+    if (isFaulty) {
+      nodeState.decided = null;
+      nodeState.x = null;
+        nodeState.k = null;
+    }
+    else {
+
+    }
     nodeState.decided = false;
-    while (!nodeState.decided) {
-      nodeState.k++;
-      for (let i = 0; i < N; i++) {
-        if (i !== nodeId) {
-          console.log(`Node ${nodeId} sending message to node ${i}`);
-          await axios.post(`http://localhost:${BASE_NODE_PORT + i}/message`, { k: nodeState.k, x: nodeState.x, messageType: "propose" });
-        }
-      }
+    nodeState.x = initialValue;
+    nodeState.k = 1;
+
+    // Send a proposal message (R, k, x) to all other processes
+    for (let i = 0; i < N; i++) {
+        await axios.post(`http://localhost:${BASE_NODE_PORT + i}/message`, { k: nodeState.k, x: nodeState.x, messageType: "R" });
     }
+
     res.status(200).send();
   });
 
