@@ -1,7 +1,7 @@
 import bodyParser from "body-parser";
 import express from "express";
 import { BASE_NODE_PORT } from "../config";
-import { Value } from "../types";
+import { NodeState, Value } from "../types";
 import { delay } from "../utils";
 import axios from 'axios';
 
@@ -29,96 +29,116 @@ export async function node(
     }
   });
 
+
+  let nodeState: NodeState = {
+    killed: false,
+    x: null,
+    decided: null,
+    k: null
+  };
+
   const messages: Record<number, any[]> = {};
 
-  async function sendMessage(recipient: number, message: any) {
-    if (!nodesAreReady()) {
-      throw new Error('Not all nodes are ready');
-    }
-    await axios.post(`http://localhost:${BASE_NODE_PORT + recipient}/message`, message);
-
-  }
-
-  async function waitForMessages(k: number, count: number) {
-    const startTime = Date.now();
-    while (!messages[k] || messages[k].length < count) {
-      if (Date.now() - startTime > 5000) {
-        return false;
-      }
-      await delay(1000);
-    }
-    return true;
-  }
-
-  async function startRound() {
-    while (true) {
-      k++;
-      for (let i = 0; i < N; i++) {
-        if (i !== nodeId) {
-          await sendMessage(i, { k, type: 'R', value: x });
-        }
-      }
-
-      const receivedR = await waitForMessages(k, N - F);
-      if (receivedR) {
-        const v = messages[k].find(msg => msg.type === 'R').value;
-        const moreThanHalf = messages[k].filter(msg => msg.type === 'R' && msg.value === v).length > N / 2;
-        for (let i = 0; i < N; i++) {
-          if (i !== nodeId) {
-            await sendMessage(i, { k, type: 'P', value: moreThanHalf ? v : '?' });
-          }
-        }
-      }
-
-      const receivedP = await waitForMessages(k, N - F);
-      if (receivedP) {
-        const v = messages[k].find(msg => msg.type === 'P' && msg.value !== '?').value;
-        const atLeastFPlusOne = messages[k].filter(msg => msg.type === 'P' && msg.value === v).length >= F + 1;
-        if (atLeastFPlusOne) {
-          console.log(`Node ${nodeId} decided on value ${v}`);
-        }
-        if (v) {
-          x = v;
-        } else {
-          x = Math.random() < 0.5 ? 0 : 1;
-        }
-      }
-    }
-  }
-
   node.post("/message", async (req, res) => {
-    const { round: messageRound, type, value } = req.body;
+    const { k, x, messageType } = req.body;
+
     if (!messages[k]) {
       messages[k] = [];
     }
-    messages[k].push({ type, value });
-    res.status(200).json({ k, type, value });
+
+    messages[k].push({ x, messageType });
+
+    if (messageType === "R") {
+      if (messages[k].filter((msg) => msg.messageType === "R").length >= N - F) {
+        const valueCounts = messages[k].reduce((counts, msg) => {
+          counts[msg.x] = (counts[msg.x] || 0) + 1;
+          return counts;
+        }, {});
+
+        let proposedValue = "?";
+        for (const value in valueCounts) {
+          if (valueCounts[value] > N / 2) {
+            proposedValue = value;
+            break;
+          }
+        }
+
+        for (let i = 0; i < N; i++) {
+          if (i !== nodeId) {
+            await axios.post(`http://localhost:${BASE_NODE_PORT + i}/message`, { k, x: proposedValue, messageType: "P" });
+          }
+        }
+      }
+    } else if (messageType === "P") {
+      if (messages[k].filter((msg) => msg.messageType === "P").length >= N - F) {
+        const valueCounts = messages[k].reduce((counts, msg) => {
+          counts[msg.x] = (counts[msg.x] || 0) + 1;
+          return counts;
+        }, {});
+
+        let decidedValue = null;
+        for (const value in valueCounts) {
+          if (value !== "?" && valueCounts[value] >= F + 1) {
+            decidedValue = value;
+            break;
+          }
+        }
+
+        if (decidedValue !== null) {
+          nodeState.decided = true;
+          nodeState.x = decidedValue as Value;
+        } else {
+          let nonQuestionValue = null;
+          for (const value in valueCounts) {
+            if (value !== "?") {
+              nonQuestionValue = value;
+              break;
+            }
+          }
+
+          if (nonQuestionValue !== null) {
+            nodeState.x = nonQuestionValue as Value;
+          } else {
+            nodeState.x = Math.random() < 0.5 ? 0 : 1;
+          }
+        }
+      }
+    }
+
+    res.status(200).send();
   });
 
   node.get("/start", async (req, res) => {
     if (!nodesAreReady()) {
       throw new Error('Not all nodes are ready');
     }
-    startRound();
+    nodeState.k = 0;
+    nodeState.x = initialValue;
+    nodeState.decided = false;
+    while (!nodeState.decided) {
+      nodeState.k++;
+      for (let i = 0; i < N; i++) {
+        if (i !== nodeId) {
+          console.log(`Node ${nodeId} sending message to node ${i}`);
+          await axios.post(`http://localhost:${BASE_NODE_PORT + i}/message`, { k: nodeState.k, x: nodeState.x, messageType: "propose" });
+        }
+      }
+    }
     res.status(200).send();
+  });
+
+  node.get("/stop", (req, res) => {
+    nodeState.killed = true;
+    res.status(200).send("killed");
+  });
+
+  node.get("/getState", (req, res) => {
+    res.status(200).send({ x: nodeState.x, k: nodeState.k, isFaulty, decided: nodeState.decided });
   });
 
   const server = node.listen(BASE_NODE_PORT + nodeId, () => {
     console.log(`Node ${nodeId} is listening on port ${BASE_NODE_PORT + nodeId}`);
     setNodeIsReady(nodeId);
-  });
-
-  server.on('listening', () => {
-    const address = server.address();
-    if (typeof address === 'string') {
-      console.log(`Server is listening at ${address}`);
-    } else if (address) {
-      console.log(`Server is listening on port ${address.port}`);
-    }
-  });
-
-  server.on('error', (error) => {
-    console.error(`Error occurred: ${error.message}`);
   });
 
   return server;
