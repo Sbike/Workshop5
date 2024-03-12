@@ -41,14 +41,14 @@ export async function node(
 
   node.post("/message", async (req, res) => {
     let { k, x, messageType } = req.body;
-    if (!isFaulty && !nodeState.killed && k === nodeState.k) {
+    if (!isFaulty && !nodeState.killed) {
       if (messageType == "R") {
         if (!messagesR.has(k)) {
           messagesR.set(k, []);
         }
         messagesR.get(k)!.push(x)
         let messageR = messagesR.get(k)!;
-        if (messageR.length >= N - F) {
+        if (messageR.length >= (N - F)) {
           let count0 = messageR.filter((el) => el == 0).length;
           let count1 = messageR.filter((el) => el == 1).length;
           if (count0 > (N / 2)) {
