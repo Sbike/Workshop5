@@ -51,25 +51,14 @@ export async function node(
         if (messageR.length >= (N - F)) {
           let count0 = messageR.filter((el) => el == 0).length;
           let count1 = messageR.filter((el) => el == 1).length;
-          let newX = x; //temporary variable x
+          let newX = "?"; //undecided is  default
           if (count0 > (N / 2)) {
-            newX = 0;
+            newX = "0";
           } else if (count1 > (N / 2)) {
-            newX = 1;
-          } else {
-            newX = "?";
+            newX = "1";
           }
-          //broadcasting "P" messages with the updated x,
-          // we only change x if the consensus is clear, otherwise, we randomize
-          if (newX !== "?") {
-            nodeState.x = newX;
-          } else {
-            nodeState.x = Math.random() > 0.5 ? 0 : 1; //Randomizes if no majority
-            nodeState.k = (nodeState.k || 0) + 1; //next round
-          }
-          //broadcasting the decision or new proposal based on the updated state
           for (let i = 0; i < N; i++) {
-            await axios.post(`http://localhost:${BASE_NODE_PORT + i}/message`, {k: nodeState.k, x: nodeState.x, messageType: nodeState.x === "?" ? "R" : "P"});
+            await axios.post(`http://localhost:${BASE_NODE_PORT + i}/message`, {k: k, x: newX, messageType: "P"});
           }
         }
       } else if (messageType == "P") {
@@ -78,17 +67,29 @@ export async function node(
         }
         messagesP.get(k)!.push(x);
         let messageP = messagesP.get(k)!;
-        if (messageP.length >= (N - F)) {
+        if (messageP.length >= N - F) {
           let count0 = messageP.filter((el) => el == 0).length;
           let count1 = messageP.filter((el) => el == 1).length;
+
           if (count0 >= F + 1) {
             nodeState.x = 0;
             nodeState.decided = true;
           } else if (count1 >= F + 1) {
             nodeState.x = 1;
             nodeState.decided = true;
+          } else {
+            if (count0 + count1 > 0 && count0 > count1) {
+              nodeState.x = 0;
+            } else if (count0 + count1 > 0 && count0 < count1) {
+              nodeState.x = 1;
+            } else {
+              nodeState.x = Math.random() > 0.5 ? 0 : 1;
+            }
+            nodeState.k = k + 1;
+            for (let i = 0; i < N; i++) {
+              await axios.post(`http://localhost:${BASE_NODE_PORT + i}/message`, {k: k + 1, x: nodeState.x, messageType: "R"});
+            }
           }
-
         }
       }
     }
