@@ -58,7 +58,7 @@ export async function node(
             newX = "1";
           }
           for (let i = 0; i < N; i++) {
-            await axios.post(`http://localhost:${BASE_NODE_PORT + i}/message`, {k: k, x: newX, messageType: "P"});
+            axios.post(`http://localhost:${BASE_NODE_PORT + i}/message`, {k: k, x: newX, messageType: "P"});
           }
         }
       } else if (messageType == "P") {
@@ -87,7 +87,7 @@ export async function node(
             }
             nodeState.k = k + 1;
             for (let i = 0; i < N; i++) {
-              await axios.post(`http://localhost:${BASE_NODE_PORT + i}/message`, {k: k + 1, x: nodeState.x, messageType: "R"});
+              axios.post(`http://localhost:${BASE_NODE_PORT + i}/message`, {k: k + 1, x: nodeState.x, messageType: "R"});
             }
           }
         }
